@@ -53,14 +53,6 @@ const type = getArg('--type').toLowerCase();
 const dry = hasFlag('--dry');
 
 
-function camelCase(str) {
-  return str.charAt(0).toLowerCase() + str.slice(1);
-}
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 const errors = [];
