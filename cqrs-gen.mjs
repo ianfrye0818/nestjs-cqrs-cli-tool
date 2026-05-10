@@ -33,8 +33,8 @@ Examples:
   process.exit(0);
 }
 
-const name = getArg('--name').toLowerCase();
-const outDir = getArg('--out').toLowerCase();
+const name = getArg('--name');
+const outDir = getArg('--out');
 const type = getArg('--type').toLowerCase();
 const dry = hasFlag('--dry');
 
@@ -52,19 +52,13 @@ if (errors.length) {
 }
 
 const isQuery = type === 'query';
-const TypeClass = isQuery ? 'IQuery' : 'IComand';
-const TypeImport = isQuery ? 'IQuery' : 'ICommand';
-const HandleDecorator = isQuery ? 'QueryHandler' : 'CommandHandler';
+const TypeClass = isQuery ? 'Query' : 'Command';
+const TypeImport = isQuery ? 'Query' : 'Command';
+const HandlerDecorator = isQuery ? 'QueryHandler' : 'CommandHandler';
 const HandlerImport = isQuery ? 'QueryHandler, IQueryHandler' : 'CommandHandler, ICommandHandler';
 const BusType = isQuery ? 'QueryBus' : 'CommandBus';
 
-function requestTemplate() {
-  return `export class ${name}Request {
-  // TODO: define the properties sent from the client
-  // Example:
-  // constructor(public readonly id: string) {}
-`
-}
+
 
 function requestTemplate() {
   return `export class ${name}Request {
@@ -91,29 +85,29 @@ function contractTemplate() {
   return `import { ${TypeImport} } from '@nestjs/cqrs';
 import { ${name}Response } from './${name}.response';
 
-export class ${name}${isQuery ? "Query" : "Command"} implements ${TypeClass}<${name}Response> {
+export class ${name}${isQuery ? "Query" : "Command"} extends ${TypeClass}<${name}Response> {
   constructor(
     // TODO: pass in what the handler needs (usually sourced from the Request DTO)
     // Example:
     // public readonly id: string,
-  ) {}
+  ) {
+      super();
+  }
 }
 `;
 }
 
 function handlerTemplate() {
   return `import { ${HandlerImport} } from '@nestjs/cqrs';
-import { Injectable } from '@nestjs/common';
 import { ${name}${isQuery ? "Query" : "Command"} } from './${name}.${type}';
 import { ${name}Response } from './${name}.response';
 
-@Injectable()
 @${HandlerDecorator}(${name}${isQuery ? "Query" : "Command"})
 export class ${name}Handler implements ${isQuery ? "IQueryHandler" : "ICommandHandler"}<${name}${isQuery ? "Query" : "Command"}, ${name}Response> {
   constructor(
     // TODO: inject your repositories / services here
     // Example:
-    // private readonly todoRepository: TodoRepository,
+    // private readonly prisma: PrismaService,
   ) {}
 
   async execute(${type}: ${name}${isQuery ? "Query" : "Command"}): Promise<${name}Response> {
@@ -131,7 +125,7 @@ const files = [
   { suffix: 'handler.ts', content: handlerTemplate() },
 ];
 
-const resolvedOut = resolve(outDir);
+const resolvedOut = resolve(outDir, name);
 
 if (dry) {
   console.log(`\n Dry run -- files that would be written to: ${resolvedOut}\n`);
@@ -157,7 +151,7 @@ for (const { suffix, content } of files) {
     console.log(`!! Skipped (already exists): ${filename}`);
     continue;
   }
-  writefile(filePath, content, 'utf8');
+  writeFileSync(filePath, content, 'utf8');
   console.log(` Created!: ${filename}`);
 }
 
