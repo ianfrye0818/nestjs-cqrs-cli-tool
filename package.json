@@ -1,0 +1,12 @@
+{
+  "name": "cqrs-gen",
+  "version": "1.0.0",
+  "description": "NestsJS CQRS file scaffolder",
+  "type": "module",
+  "bin": {
+    "cqrs-gen": "./cqrs-gen.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
