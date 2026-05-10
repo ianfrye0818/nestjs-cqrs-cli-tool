@@ -10,7 +10,7 @@
  *   npm install -g .   (from the directory containing this file + package.json)
  *   cqrs-gen --name GetTodos --out ./src/features/Todos --type query
  */
-import { join, resolve, basename } from 'path';
+import { join, resolve, basename, dirname, relative } from 'path';
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'fs';
 
 // ─── Arg parsing ─────────────────────────────────────────────────────────────
@@ -165,6 +165,65 @@ function findExistingModule(dir) {
   return match ? join(dir, match) : null;
 }
 
+function findAppModule(startDir) {
+  let dir = resolve(startDir);
+  while (true) {
+    const candidate = join(dir, 'app.module.ts');
+    if (existsSync(candidate)) return candidate;
+    const parent = resolve(dir, '..');
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function injectModuleIntoAppModule(source, entityModuleName, entityModulePath, appModulePath) {
+  let result = source;
+  let changed = false;
+
+  const relPath = './' + relative(dirname(appModulePath), entityModulePath).replace(/\\/g, '/').replace(/\.ts$/, '');
+
+  const alreadyImported = result.includes(`'${relPath}'`) || result.includes(`"${relPath}"`);
+
+  if (!alreadyImported) {
+    const importLine = `import { ${entityModuleName} } from '${relPath}';`;
+    const importRegex = /^import .+from .+;$/gm;
+    let lastImportEnd = -1;
+    let match;
+    while ((match = importRegex.exec(result)) !== null) {
+      lastImportEnd = match.index + match[0].length;
+    }
+    if (lastImportEnd === -1) {
+      result = importLine + '\n' + result;
+    } else {
+      result = result.slice(0, lastImportEnd) + '\n' + importLine + result.slice(lastImportEnd);
+    }
+    changed = true;
+  }
+
+  const importsRegex = /(imports\s*:\s*\[)([\s\S]*?)(\])/;
+  const importsMatch = importsRegex.exec(result);
+  if (!importsMatch) {
+    return { source: result, changed, error: 'Could not locate imports array in app.module.ts' };
+  }
+
+  const [, open, inner, close] = importsMatch;
+  if (inner.includes(entityModuleName)) {
+    return { source: result, changed, error: null };
+  }
+
+  const trimmed = inner.trim();
+  let newInner;
+  if (trimmed === '') {
+    newInner = `\n    ${entityModuleName},\n  `;
+  } else {
+    const normalized = trimmed.replace(/,?\s*$/, ',');
+    newInner = `\n    ${normalized}\n    ${entityModuleName},\n  `;
+  }
+
+  result = result.replace(importsRegex, `${open}${newInner}${close}`);
+  return { source: result, changed: true, error: null };
+}
+
 /**
  * Inject a handler into an existing module file.
  * Independently handles the import line and the providers array.
@@ -270,7 +329,17 @@ if (dry) {
   } else {
     const entityName = entityNameFromDir(outDir);
     const moduleFileName = `${entityName}.module.ts`;
+    const modulePath = join(outDir, moduleFileName);
+    console.log(`--- ${moduleFileName} (would be created) ${"-".repeat(10)}`);
     console.log(moduleTemplate(entityName, handlerClassName, handlerFileName));
+
+    const appModulePath = findAppModule(outDir);
+    if (appModulePath) {
+      const appSrc = readFileSync(appModulePath, 'utf8');
+      const { source: updatedApp, error: appError } = injectModuleIntoAppModule(appSrc, `${entityName}Module`, modulePath, appModulePath);
+      console.log(`--- app.module.ts (would be updated) ${"-".repeat(10)}`);
+      console.log(appError ? `!! ${appError} - manual update needed.` : updatedApp);
+    }
   }
 
   process.exit(0);
@@ -327,7 +396,23 @@ if (existingModulePath) {
   const content = moduleTemplate(entityName, handlerClassName, handlerFileName);
 
   writeFileSync(modulePath, content, 'utf8');
-  console.log(`${moduleFileName} - created for ${handlerClassName} in providers\n`);
+  console.log(` ${moduleFileName} - created for ${handlerClassName} in providers\n`);
+
+  const appModulePath = findAppModule(outDir);
+  if (appModulePath) {
+    const appSrc = readFileSync(appModulePath, 'utf8');
+    const { source: updatedApp, changed: appChanged, error: appError } = injectModuleIntoAppModule(
+      appSrc, `${entityName}Module`, modulePath, appModulePath
+    );
+    if (appError) {
+      console.log(`!! Found app.module.ts but ${appError}.\n   Add ${entityName}Module to imports manually.\n`);
+    } else if (!appChanged) {
+      console.log(` !! app.module.ts already contains ${entityName}Module -- skipped.\n`);
+    } else {
+      writeFileSync(appModulePath, updatedApp, 'utf8');
+      console.log(` app.module.ts - injected ${entityName}Module into imports\n`);
+    }
+  }
 }
 
 // ─── Next steps ───────────────────────────────────────────────────────────────
