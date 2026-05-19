@@ -10,8 +10,14 @@
  *   npm install -g .   (from the directory containing this file + package.json)
  *   cqrs-gen --name GetTodos --out ./src/features/Todos --type query
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
-import { basename, dirname, join, relative, resolve } from 'path';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "fs";
+import { basename, dirname, join, relative, resolve } from "path";
 
 // ─── Arg parsing ─────────────────────────────────────────────────────────────
 
@@ -26,7 +32,7 @@ function hasFlag(flag) {
   return args.includes(flag);
 }
 
-if (hasFlag('--help') || hasFlag('-h')) {
+if (hasFlag("--help") || hasFlag("-h")) {
   console.log(`
 cqrs-gen — NestJS CQRS file scaffolder
 
@@ -47,33 +53,34 @@ Examples:
   process.exit(0);
 }
 
-const name = getArg('--name');
-const outDir = getArg('--out');
-const type = getArg('--type').toLowerCase();
-const dry = hasFlag('--dry');
-
+const name = getArg("--name");
+const outDir = getArg("--out");
+const type = getArg("--type").toLowerCase();
+const dry = hasFlag("--dry");
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 const errors = [];
 
-if (!name) errors.push('--name is required (e.g. --name GetTodos');
-if (!outDir) errors.push('--out is required (e.g. --out ./src/features/Todos)');
-if (!type) errors.push('--type is required: query or command');
-if (type && type !== 'query' && type !== 'command') errors.push('--type must be either "query" or "command"');
+if (!name) errors.push("--name is required (e.g. --name GetTodos");
+if (!outDir) errors.push("--out is required (e.g. --out ./src/features/Todos)");
+if (!type) errors.push("--type is required: query or command");
+if (type && type !== "query" && type !== "command")
+  errors.push('--type must be either "query" or "command"');
 
 if (errors.length) {
   console.error("\n Errors: \n " + errors.join("\n ") + "\n");
-  console.error('Run with --help for usage. \n');
+  console.error("Run with --help for usage. \n");
   process.exit(1);
 }
 
-const isQuery = type === 'query';
-const TypeClass = isQuery ? 'Query' : 'Command';
-const TypeImport = isQuery ? 'Query' : 'Command';
-const HandlerDecorator = isQuery ? 'QueryHandler' : 'CommandHandler';
-const HandlerImport = isQuery ? 'QueryHandler, IQueryHandler' : 'CommandHandler, ICommandHandler';
-
+const isQuery = type === "query";
+const TypeClass = isQuery ? "Query" : "Command";
+const TypeImport = isQuery ? "Query" : "Command";
+const HandlerDecorator = isQuery ? "QueryHandler" : "CommandHandler";
+const HandlerImport = isQuery
+  ? "QueryHandler, IQueryHandler"
+  : "CommandHandler, ICommandHandler";
 
 // ─── Template generators ──────────────────────────────────────────────────────
 
@@ -101,12 +108,11 @@ function responseTemplate() {
 function contractTemplate() {
   return `import { ${TypeImport} } from '@nestjs/cqrs';
 import { ${name}Response } from './${name}.response';
+import { ${name}Request } from './${name}.request';
 
 export class ${name}${isQuery ? "Query" : "Command"} extends ${TypeClass}<${name}Response> {
   constructor(
-    // TODO: pass in what the handler needs (usually sourced from the Request DTO)
-    // Example:
-    // public readonly id: string,
+    public readonly request: ${name}Request
   ) {
       super();
   }
@@ -118,6 +124,8 @@ function handlerTemplate() {
   return `import { ${HandlerImport} } from '@nestjs/cqrs';
 import { ${name}${isQuery ? "Query" : "Command"} } from './${name}.${type}';
 import { ${name}Response } from './${name}.response';
+import { NotImplementedException } from '@nestjs/common';
+
 
 @${HandlerDecorator}(${name}${isQuery ? "Query" : "Command"})
 export class ${name}Handler implements ${isQuery ? "IQueryHandler" : "ICommandHandler"}<${name}${isQuery ? "Query" : "Command"}, ${name}Response> {
@@ -129,9 +137,39 @@ export class ${name}Handler implements ${isQuery ? "IQueryHandler" : "ICommandHa
 
   async execute(${type}: ${name}${isQuery ? "Query" : "Command"}): Promise<${name}Response> {
     // TODO: implement business logic
-    throw new Error('${name}Handler not yet implemented');
+    throw new NotImplementedException('${name}Handler not yet implemented');
   }
 }
+`;
+}
+
+function handlerSpecTemplate() {
+  return `import { Test } from '@nestjs/testing';
+import { ${name}Handler } from './${name}.handler';
+
+describe(${name}Handler, () => {
+
+  let handler: ${name}Handler;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+        controllers: [],
+        providers: [
+          ${name}Handler,
+        ],
+      }).compile();
+
+      handler = moduleRef.get<${name}Handler>(${name}Handler);
+
+  });
+
+  describe('execute', () => {
+    it('should exist', async () => {
+      expect(handler.execute).toBeDefined();
+    })
+  })
+
+});
 `;
 }
 
@@ -167,21 +205,31 @@ function findExistingModule(dir) {
 function findAppModule(startDir) {
   let dir = resolve(startDir);
   while (true) {
-    const candidate = join(dir, 'app.module.ts');
+    const candidate = join(dir, "app.module.ts");
     if (existsSync(candidate)) return candidate;
-    const parent = resolve(dir, '..');
+    const parent = resolve(dir, "..");
     if (parent === dir) return null;
     dir = parent;
   }
 }
 
-function injectModuleIntoAppModule(source, entityModuleName, entityModulePath, appModulePath) {
+function injectModuleIntoAppModule(
+  source,
+  entityModuleName,
+  entityModulePath,
+  appModulePath,
+) {
   let result = source;
   let changed = false;
 
-  const relPath = './' + relative(dirname(appModulePath), entityModulePath).replace(/\\/g, '/').replace(/\.ts$/, '');
+  const relPath =
+    "./" +
+    relative(dirname(appModulePath), entityModulePath)
+      .replace(/\\/g, "/")
+      .replace(/\.ts$/, "");
 
-  const alreadyImported = result.includes(`'${relPath}'`) || result.includes(`"${relPath}"`);
+  const alreadyImported =
+    result.includes(`'${relPath}'`) || result.includes(`"${relPath}"`);
 
   if (!alreadyImported) {
     const importLine = `import { ${entityModuleName} } from '${relPath}';`;
@@ -192,9 +240,13 @@ function injectModuleIntoAppModule(source, entityModuleName, entityModulePath, a
       lastImportEnd = match.index + match[0].length;
     }
     if (lastImportEnd === -1) {
-      result = importLine + '\n' + result;
+      result = importLine + "\n" + result;
     } else {
-      result = result.slice(0, lastImportEnd) + '\n' + importLine + result.slice(lastImportEnd);
+      result =
+        result.slice(0, lastImportEnd) +
+        "\n" +
+        importLine +
+        result.slice(lastImportEnd);
     }
     changed = true;
   }
@@ -202,7 +254,11 @@ function injectModuleIntoAppModule(source, entityModuleName, entityModulePath, a
   const importsRegex = /(imports\s*:\s*\[)([\s\S]*?)(\])/;
   const importsMatch = importsRegex.exec(result);
   if (!importsMatch) {
-    return { source: result, changed, error: 'Could not locate imports array in app.module.ts' };
+    return {
+      source: result,
+      changed,
+      error: "Could not locate imports array in app.module.ts",
+    };
   }
 
   const [, open, inner, close] = importsMatch;
@@ -212,10 +268,10 @@ function injectModuleIntoAppModule(source, entityModuleName, entityModulePath, a
 
   const trimmed = inner.trim();
   let newInner;
-  if (trimmed === '') {
+  if (trimmed === "") {
     newInner = `\n    ${entityModuleName},\n  `;
   } else {
-    const normalized = trimmed.replace(/,?\s*$/, ',');
+    const normalized = trimmed.replace(/,?\s*$/, ",");
     newInner = `\n    ${normalized}\n    ${entityModuleName},\n  `;
   }
 
@@ -232,12 +288,10 @@ function injectHandlerIntoModule(source, handlerName, handlerFile) {
   let result = source;
   let changed = false;
 
-
   // Import Statement
-  const importPath = `./${name}/${handlerFile}`
+  const importPath = `./${name}/${handlerFile}`;
   const alreadyImported =
     result.includes(`'${importPath}'`) || result.includes(`"${importPath}"`);
-
 
   if (!alreadyImported) {
     const importLine = `import { ${handlerName} } from '${importPath}';`;
@@ -266,7 +320,11 @@ function injectHandlerIntoModule(source, handlerName, handlerFile) {
   const providersMatch = providerRegex.exec(result);
 
   if (!providersMatch) {
-    return { source: result, changed, error: 'Could not locate providers array' };
+    return {
+      source: result,
+      changed,
+      error: "Could not locate providers array",
+    };
   }
 
   const [, open, inner, close] = providersMatch;
@@ -321,7 +379,7 @@ export class ${entityName}Controller {
 
 function findExistingController(dir) {
   if (!existsSync(dir)) return null;
-  const match = readdirSync(dir).find((f) => f.endsWith('.controller.ts'));
+  const match = readdirSync(dir).find((f) => f.endsWith(".controller.ts"));
   return match ? join(dir, match) : null;
 }
 
@@ -330,7 +388,8 @@ function injectControllerIntoModule(source, controllerName, controllerFile) {
   let changed = false;
 
   const importPath = `./${controllerFile}`;
-  const alreadyImported = result.includes(`'${importPath}'`) || result.includes(`"${importPath}"`);
+  const alreadyImported =
+    result.includes(`'${importPath}'`) || result.includes(`"${importPath}"`);
 
   if (!alreadyImported) {
     const importLine = `import { ${controllerName} } from '${importPath}';`;
@@ -341,9 +400,13 @@ function injectControllerIntoModule(source, controllerName, controllerFile) {
       lastImportEnd = match.index + match[0].length;
     }
     if (lastImportEnd === -1) {
-      result = importLine + '\n' + result;
+      result = importLine + "\n" + result;
     } else {
-      result = result.slice(0, lastImportEnd) + '\n' + importLine + result.slice(lastImportEnd);
+      result =
+        result.slice(0, lastImportEnd) +
+        "\n" +
+        importLine +
+        result.slice(lastImportEnd);
     }
     changed = true;
   }
@@ -351,7 +414,11 @@ function injectControllerIntoModule(source, controllerName, controllerFile) {
   const controllersRegex = /(controllers\s*:\s*\[)([\s\S]*?)(\])/;
   const controllersMatch = controllersRegex.exec(result);
   if (!controllersMatch) {
-    return { source: result, changed, error: 'Could not locate controllers array' };
+    return {
+      source: result,
+      changed,
+      error: "Could not locate controllers array",
+    };
   }
 
   const [, open, inner, close] = controllersMatch;
@@ -360,39 +427,41 @@ function injectControllerIntoModule(source, controllerName, controllerFile) {
   }
 
   const trimmed = inner.trim();
-  const newInner = trimmed === ''
-    ? `\n    ${controllerName},\n  `
-    : `\n    ${trimmed.replace(/,?\s*$/, ',')}\n    ${controllerName},\n  `;
+  const newInner =
+    trimmed === ""
+      ? `\n    ${controllerName},\n  `
+      : `\n    ${trimmed.replace(/,?\s*$/, ",")}\n    ${controllerName},\n  `;
 
   result = result.replace(controllersRegex, `${open}${newInner}${close}`);
   return { source: result, changed: true, error: null };
 }
 
-
 // ─── File definitions ─────────────────────────────────────────────────────────
 
-
 const files = [
-  { suffix: 'request.ts', content: requestTemplate() },
-  { suffix: 'response.ts', content: responseTemplate() },
+  { suffix: "request.ts", content: requestTemplate() },
+  { suffix: "response.ts", content: responseTemplate() },
   { suffix: `${type}.ts`, content: contractTemplate() },
-  { suffix: 'handler.ts', content: handlerTemplate() },
+  { suffix: "handler.ts", content: handlerTemplate() },
+  { suffix: "handler.spec.ts", content: handlerSpecTemplate() },
 ];
 
 const handlerClassName = `${name}Handler`;
 const handlerFileName = `${name}.handler`;
 
-
 // ─── Dry run ──────────────────────────────────────────────────────────────────
-
 
 const resolvedOut = resolve(outDir, name);
 
 if (dry) {
-  console.log(`\n🔍 Dry run -- files that would be written to: ${resolvedOut}\n`);
+  console.log(
+    `\n🔍 Dry run -- files that would be written to: ${resolvedOut}\n`,
+  );
   for (const { suffix, content } of files) {
     const filename = `${name}.${suffix}`;
-    console.log(`--- ${filename} ${"--".repeat(Math.max(0, 50 - filename.length))}`);
+    console.log(
+      `--- ${filename} ${"--".repeat(Math.max(0, 50 - filename.length))}`,
+    );
     console.log(content);
   }
 
@@ -400,9 +469,15 @@ if (dry) {
   const existingModule = findExistingModule(outDir);
 
   if (existingModule) {
-    const src = readFileSync(existingModule, 'utf8');
-    const { source: updated, error } = injectHandlerIntoModule(src, handlerClassName, handlerFileName);
-    console.log(`--- ${basename(existingModule)} (would be updated) ${"-".repeat(10)}`);
+    const src = readFileSync(existingModule, "utf8");
+    const { source: updated, error } = injectHandlerIntoModule(
+      src,
+      handlerClassName,
+      handlerFileName,
+    );
+    console.log(
+      `--- ${basename(existingModule)} (would be updated) ${"-".repeat(10)}`,
+    );
     console.log(error ? `!! ${error} - manual update needed.` : updated);
   } else {
     const moduleFileName = `${entityName}.module.ts`;
@@ -412,25 +487,32 @@ if (dry) {
 
     const appModulePath = findAppModule(outDir);
     if (appModulePath) {
-      const appSrc = readFileSync(appModulePath, 'utf8');
-      const { source: updatedApp, error: appError } = injectModuleIntoAppModule(appSrc, `${entityName}Module`, modulePath, appModulePath);
+      const appSrc = readFileSync(appModulePath, "utf8");
+      const { source: updatedApp, error: appError } = injectModuleIntoAppModule(
+        appSrc,
+        `${entityName}Module`,
+        modulePath,
+        appModulePath,
+      );
       console.log(`--- app.module.ts (would be updated) ${"-".repeat(10)}`);
-      console.log(appError ? `!! ${appError} - manual update needed.` : updatedApp);
+      console.log(
+        appError ? `!! ${appError} - manual update needed.` : updatedApp,
+      );
     }
   }
 
   if (!findExistingController(outDir)) {
     const controllerFileName = `${entityName}.controller`;
-    console.log(`--- ${controllerFileName}.ts (would be created) ${"-".repeat(10)}`);
+    console.log(
+      `--- ${controllerFileName}.ts (would be created) ${"-".repeat(10)}`,
+    );
     console.log(controllerTemplate(entityName));
   }
 
   process.exit(0);
 }
 
-
 // ─── Write CQRS files ─────────────────────────────────────────────────────────
-
 
 if (!existsSync(resolvedOut)) {
   mkdirSync(resolvedOut, { recursive: true });
@@ -448,7 +530,7 @@ for (const { suffix, content } of files) {
     continue;
   }
 
-  writeFileSync(filePath, content, 'utf8');
+  writeFileSync(filePath, content, "utf8");
   console.log(` Created!: ${filename}`);
 }
 
@@ -463,40 +545,67 @@ const existingModulePath = findExistingModule(outDir);
 if (existingModulePath) {
   featureModulePath = existingModulePath;
   const moduleFileName = basename(existingModulePath);
-  const src = readFileSync(existingModulePath, 'utf8');
-  const { source: updated, error, changed } = injectHandlerIntoModule(src, handlerClassName, handlerFileName);
+  const src = readFileSync(existingModulePath, "utf8");
+  const {
+    source: updated,
+    error,
+    changed,
+  } = injectHandlerIntoModule(src, handlerClassName, handlerFileName);
 
   if (error) {
     console.log(`!! Found ${moduleFileName} but ${error}.`);
     console.log(`   Add ${handlerClassName} to providers manually.\n`);
   } else if (!changed) {
-    console.log(` !! ${moduleFileName} already contains ${handlerClassName} -- skipped.\n`);
+    console.log(
+      ` !! ${moduleFileName} already contains ${handlerClassName} -- skipped.\n`,
+    );
   } else {
-    writeFileSync(existingModulePath, updated, 'utf8');
-    console.log(` ${moduleFileName} - injected ${handlerClassName} into providers\n`);
+    writeFileSync(existingModulePath, updated, "utf8");
+    console.log(
+      ` ${moduleFileName} - injected ${handlerClassName} into providers\n`,
+    );
   }
 } else {
   const moduleFileName = `${featureEntityName}.module.ts`;
   const modulePath = join(outDir, moduleFileName);
   featureModulePath = modulePath;
-  const content = moduleTemplate(featureEntityName, handlerClassName, handlerFileName);
+  const content = moduleTemplate(
+    featureEntityName,
+    handlerClassName,
+    handlerFileName,
+  );
 
-  writeFileSync(modulePath, content, 'utf8');
-  console.log(` ${moduleFileName} - created for ${handlerClassName} in providers\n`);
+  writeFileSync(modulePath, content, "utf8");
+  console.log(
+    ` ${moduleFileName} - created for ${handlerClassName} in providers\n`,
+  );
 
   const appModulePath = findAppModule(outDir);
   if (appModulePath) {
-    const appSrc = readFileSync(appModulePath, 'utf8');
-    const { source: updatedApp, changed: appChanged, error: appError } = injectModuleIntoAppModule(
-      appSrc, `${featureEntityName}Module`, modulePath, appModulePath
+    const appSrc = readFileSync(appModulePath, "utf8");
+    const {
+      source: updatedApp,
+      changed: appChanged,
+      error: appError,
+    } = injectModuleIntoAppModule(
+      appSrc,
+      `${featureEntityName}Module`,
+      modulePath,
+      appModulePath,
     );
     if (appError) {
-      console.log(`!! Found app.module.ts but ${appError}.\n   Add ${featureEntityName}Module to imports manually.\n`);
+      console.log(
+        `!! Found app.module.ts but ${appError}.\n   Add ${featureEntityName}Module to imports manually.\n`,
+      );
     } else if (!appChanged) {
-      console.log(` !! app.module.ts already contains ${featureEntityName}Module -- skipped.\n`);
+      console.log(
+        ` !! app.module.ts already contains ${featureEntityName}Module -- skipped.\n`,
+      );
     } else {
-      writeFileSync(appModulePath, updatedApp, 'utf8');
-      console.log(` app.module.ts - injected ${featureEntityName}Module into imports\n`);
+      writeFileSync(appModulePath, updatedApp, "utf8");
+      console.log(
+        ` app.module.ts - injected ${featureEntityName}Module into imports\n`,
+      );
     }
   }
 }
@@ -508,19 +617,29 @@ if (!existingControllerPath) {
   const controllerFileName = `${featureEntityName}.controller`;
   const controllerPath = join(outDir, `${controllerFileName}.ts`);
 
-  writeFileSync(controllerPath, controllerTemplate(featureEntityName), 'utf8');
+  writeFileSync(controllerPath, controllerTemplate(featureEntityName), "utf8");
   console.log(` ${controllerFileName}.ts - created\n`);
 
   if (featureModulePath) {
-    const moduleSrc = readFileSync(featureModulePath, 'utf8');
-    const { source: updatedModule, changed, error } = injectControllerIntoModule(
-      moduleSrc, `${featureEntityName}Controller`, controllerFileName
+    const moduleSrc = readFileSync(featureModulePath, "utf8");
+    const {
+      source: updatedModule,
+      changed,
+      error,
+    } = injectControllerIntoModule(
+      moduleSrc,
+      `${featureEntityName}Controller`,
+      controllerFileName,
     );
     if (error) {
-      console.log(`!! Could not inject ${featureEntityName}Controller into module: ${error}.\n   Add manually.\n`);
+      console.log(
+        `!! Could not inject ${featureEntityName}Controller into module: ${error}.\n   Add manually.\n`,
+      );
     } else if (changed) {
-      writeFileSync(featureModulePath, updatedModule, 'utf8');
-      console.log(` ${basename(featureModulePath)} - injected ${featureEntityName}Controller into controllers\n`);
+      writeFileSync(featureModulePath, updatedModule, "utf8");
+      console.log(
+        ` ${basename(featureModulePath)} - injected ${featureEntityName}Controller into controllers\n`,
+      );
     }
   }
 }
@@ -534,15 +653,5 @@ console.log(`
     3. Update ${name}.${type}.ts with constructor args sourced from the request
     4. Implement ${name}Handler.execute() with your business logic
     5. Register ${name}Handler in your features module's provider array
-`)
-
-
-
-
-
-
-
-
-
-
-
+    6. Implement tests in ${name}.handler.spec.ts
+`);
